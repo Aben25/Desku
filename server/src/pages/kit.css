@@ -1,0 +1,132 @@
+/* Desku UI kit: injected into every page Desku makes (see Pages.ts withKit). Nightlight palette,
+   sized for a portrait phone on a desk stand, read at arm's length. Desku writes plain semantic
+   HTML with these classes; the kit supplies the look and kit.js the live parts. */
+:root {
+  --dk-bg: #08182a; --dk-panel: #0f2236; --dk-panel-2: #132a42; --dk-line: #1f3550;
+  --dk-fg: #eef1f5; --dk-muted: #8c9bab; --dk-faint: #5c6d80;
+  --dk-blue: #4a9be8; --dk-blue-soft: #9ccbff; --dk-ok: #5fd0a0; --dk-warn: #f2b75b; --dk-bad: #ef7b6c;
+  --dk-sans: Figtree, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --dk-mono: "DM Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; min-height: 100vh; padding: 28px 20px 48px;
+  background: radial-gradient(120% 60% at 50% -10%, #12345a 0%, var(--dk-bg) 60%) fixed, var(--dk-bg);
+  color: var(--dk-fg); font: 18px/1.45 var(--dk-sans);
+  max-width: 720px; margin-inline: auto;
+}
+h1, h2, h3 { margin: 0; line-height: 1.15; letter-spacing: -.01em; }
+h1 { font-size: 34px; font-weight: 700; }
+h2 { font-size: 24px; font-weight: 650; }
+h3 { font-size: 19px; font-weight: 600; }
+p { margin: 0; }
+a { color: var(--dk-blue-soft); }
+.mono, code { font-family: var(--dk-mono); }
+.muted { color: var(--dk-muted); }
+.small { font-size: 14px; }
+.big { font-size: 44px; font-weight: 700; line-height: 1.05; font-variant-numeric: tabular-nums; }
+.stack > * + * { margin-top: 14px; }
+
+/* Header */
+.hero { margin-bottom: 22px; }
+.eyebrow { font: 500 13px var(--dk-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dk-blue-soft); margin-bottom: 8px; }
+.hero .sub { color: var(--dk-muted); margin-top: 8px; font-size: 17px; }
+
+/* Surfaces */
+.card { background: var(--dk-panel); border: 1px solid var(--dk-line); border-radius: 20px; padding: 18px; margin-top: 14px; }
+.card.accent { border-color: color-mix(in srgb, var(--dk-blue) 60%, var(--dk-line)); box-shadow: 0 0 0 1px color-mix(in srgb, var(--dk-blue) 25%, transparent) inset; }
+.card > h3, .card > h2 { margin-bottom: 10px; }
+.grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); margin-top: 14px; }
+.grid > .card { margin-top: 0; }
+.row { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.spread { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+
+/* Stat tile: <div class="stat"><span>Gate</span><b>B12</b></div> */
+.stat { background: var(--dk-panel); border: 1px solid var(--dk-line); border-radius: 16px; padding: 14px 16px; }
+.stat > span, .stat > small { display: block; font: 500 12px var(--dk-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--dk-muted); }
+.stat > b, .stat > strong { display: block; font-size: 26px; font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+
+/* Badges and chips */
+.badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font: 600 13px var(--dk-sans); background: var(--dk-panel-2); color: var(--dk-blue-soft); border: 1px solid var(--dk-line); }
+.badge::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.badge.ok { color: var(--dk-ok); } .badge.warn { color: var(--dk-warn); } .badge.bad { color: var(--dk-bad); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip { padding: 6px 12px; border-radius: 999px; background: var(--dk-panel-2); border: 1px solid var(--dk-line); font-size: 15px; }
+
+/* List rows: <ul class="list"><li><b>Title</b><span>meta</span></li></ul> */
+ul.list { list-style: none; margin: 0; padding: 0; }
+ul.list > li { display: flex; justify-content: space-between; align-items: baseline; gap: 14px; padding: 13px 0; border-top: 1px solid var(--dk-line); }
+ul.list > li:first-child { border-top: 0; }
+ul.list > li > :last-child:not(:first-child) { color: var(--dk-muted); font: 14px var(--dk-mono); white-space: nowrap; }
+
+/* Timeline: <ol class="timeline"><li class="done|now"><time>7:05</time><b>Leave home</b><span>detail</span></li></ol> */
+ol.timeline { list-style: none; margin: 0; padding: 0 0 0 26px; position: relative; }
+ol.timeline::before { content: ""; position: absolute; left: 7px; top: 8px; bottom: 8px; width: 2px; background: var(--dk-line); border-radius: 2px; }
+ol.timeline > li { position: relative; padding: 0 0 18px; }
+ol.timeline > li:last-child { padding-bottom: 0; }
+ol.timeline > li::before { content: ""; position: absolute; left: -25px; top: 6px; width: 14px; height: 14px; border-radius: 50%; background: var(--dk-bg); border: 2px solid var(--dk-faint); }
+ol.timeline > li.done::before { background: var(--dk-faint); }
+ol.timeline > li.now::before { border-color: var(--dk-blue); background: var(--dk-blue); box-shadow: 0 0 0 5px color-mix(in srgb, var(--dk-blue) 25%, transparent); }
+ol.timeline > li > time { display: block; font: 500 14px var(--dk-mono); color: var(--dk-blue-soft); }
+ol.timeline > li > b { display: block; font-size: 18px; }
+ol.timeline > li > span { display: block; color: var(--dk-muted); font-size: 15px; }
+ol.timeline > li.done { opacity: .6; }
+
+/* Boarding pass / ticket:
+   <div class="pass"><div class="pass-top"><span class="airline">United</span><span class="badge ok">On time</span></div>
+     <div class="route" data-from="SFO" data-to="IAD"><div><b>SFO</b><span>San Francisco</span><time>8:05 AM</time></div>
+       <div><b>IAD</b><span>Washington</span><time>4:32 PM</time></div></div>
+     <div class="pass-meta"><div><span>Flight</span><b>UA 1234</b></div>...</div></div> */
+.pass { position: relative; margin-top: 14px; border-radius: 24px; padding: 20px 20px 18px; color: var(--dk-fg);
+  background: linear-gradient(160deg, #1b4b7c 0%, #12345a 45%, #0f2236 100%); border: 1px solid #2e649c;
+  box-shadow: 0 20px 40px -20px rgba(0,0,0,.7); overflow: hidden; }
+.pass::after { content: ""; position: absolute; inset: auto -40% 55% auto; width: 260px; height: 260px; border-radius: 50%;
+  background: radial-gradient(circle, rgba(156,203,255,.18), transparent 70%); pointer-events: none; }
+.pass-top { display: flex; justify-content: space-between; align-items: center; gap: 10px; margin-bottom: 14px; }
+.pass-top .airline { font: 600 14px var(--dk-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dk-blue-soft); }
+.pass-meta { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px 10px; margin-top: 18px; padding-top: 16px;
+  border-top: 2px dashed rgba(156,203,255,.35); position: relative; }
+.pass-meta::before, .pass-meta::after { content: ""; position: absolute; top: -13px; width: 24px; height: 24px; border-radius: 50%; background: var(--dk-bg); }
+.pass-meta::before { left: -32px; } .pass-meta::after { right: -32px; }
+.pass-meta > div > span { display: block; font: 500 11px var(--dk-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dk-blue-soft); opacity: .85; }
+.pass-meta > div > b { display: block; font-size: 20px; font-weight: 700; margin-top: 2px; }
+
+/* Route: two ends with an arc between them (kit.js draws the arc and the moving plane). */
+.route { display: grid; grid-template-columns: auto 1fr auto; align-items: end; gap: 6px; }
+.route > div:first-child { grid-column: 1; } .route > div:last-child { grid-column: 3; text-align: right; }
+.route > div > b { display: block; font: 700 46px/1 var(--dk-sans); letter-spacing: -.02em; }
+.route > div > span { display: block; color: var(--dk-blue-soft); font-size: 14px; margin-top: 4px; }
+.route > div > time { display: block; font: 600 18px var(--dk-mono); margin-top: 6px; }
+.route > svg.dk-arc { grid-column: 2; grid-row: 1; width: 100%; height: auto; max-height: 80px; align-self: start; margin-top: 4px; overflow: visible; }
+
+/* Countdown: <div class="countdown" data-to="2026-10-08T15:05:00Z" data-label="Boarding in"></div> */
+.countdown { text-align: center; padding: 18px; }
+.countdown .dk-label { font: 500 13px var(--dk-mono); letter-spacing: .1em; text-transform: uppercase; color: var(--dk-muted); }
+.countdown .dk-units { display: flex; justify-content: center; gap: 10px; margin-top: 10px; }
+.countdown .dk-unit { min-width: 66px; background: var(--dk-panel-2); border: 1px solid var(--dk-line); border-radius: 14px; padding: 10px 6px; }
+.countdown .dk-unit b { display: block; font: 700 34px/1 var(--dk-sans); font-variant-numeric: tabular-nums; }
+.countdown .dk-unit small { display: block; font: 11px var(--dk-mono); color: var(--dk-muted); margin-top: 4px; text-transform: uppercase; letter-spacing: .08em; }
+.countdown.dk-past .dk-units { opacity: .5; }
+
+/* Progress: <div class="progress" data-value="0.4"></div> */
+.progress { height: 10px; border-radius: 999px; background: var(--dk-panel-2); overflow: hidden; border: 1px solid var(--dk-line); }
+.progress > i { display: block; height: 100%; width: 0; border-radius: inherit; background: linear-gradient(90deg, var(--dk-blue), var(--dk-blue-soft)); transition: width .8s ease; }
+
+/* Tables */
+table { width: 100%; border-collapse: collapse; font-size: 16px; }
+th { text-align: left; font: 500 12px var(--dk-mono); letter-spacing: .08em; text-transform: uppercase; color: var(--dk-muted); padding: 8px 6px; border-bottom: 1px solid var(--dk-line); }
+td { padding: 10px 6px; border-bottom: 1px solid var(--dk-line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+
+/* Note / callout */
+.note { border-left: 3px solid var(--dk-blue); background: var(--dk-panel); padding: 12px 14px; border-radius: 0 12px 12px 0; margin-top: 14px; color: var(--dk-fg); }
+.note.warn { border-color: var(--dk-warn); } .note.bad { border-color: var(--dk-bad); }
+
+.footer { margin-top: 28px; color: var(--dk-faint); font: 12px var(--dk-mono); text-align: center; }
+
+/* Entrance: cards rise in, one after another. */
+@media (prefers-reduced-motion: no-preference) {
+  .hero, .card, .pass, .stat, .grid > *, .note { animation: dk-rise .5s cubic-bezier(.2,.7,.2,1) both; }
+  @keyframes dk-rise { from { opacity: 0; transform: translateY(12px); } }
+}

@@ -1,0 +1,444 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Desku agent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Figtree:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  /* Nightlight palette from design/handoff. */
+  :root {
+    --bg: #08182a; --panel: #0f2236; --panel-2: #132a42; --line: #1f3550;
+    --fg: #eef1f5; --muted: #8c9bab; --faint: #5c6d80;
+    --blue: #4a9be8; --blue-soft: #9ccbff; --ok: #5fd0a0; --warn: #f2b75b; --off: #3f4f63; --bad: #ef7b6c;
+    --sans: Figtree, system-ui, sans-serif; --mono: "DM Mono", ui-monospace, monospace;
+  }
+  @media (prefers-color-scheme: light) {
+    :root:not([data-theme="dark"]) {
+      --bg: #eef2f7; --panel: #fbfdff; --panel-2: #e9eef5; --line: #d6dee8;
+      --fg: #1d242b; --muted: #4a5560; --faint: #8c9bab;
+      --blue: #2e649c; --blue-soft: #1c5fb8; --ok: #1f8a5f; --warn: #a96a0b; --off: #abbccc; --bad: #b8412f;
+    }
+  }
+  * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.5 var(--sans); }
+  main { max-width: 1040px; margin: 0 auto; padding: 28px 16px 64px; }
+  h2 { font: 500 12px/1 var(--mono); letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 14px; }
+  .mono { font-family: var(--mono); }
+  .muted { color: var(--muted); }
+  section { margin-top: 36px; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; padding: 18px; }
+
+  /* Header */
+  header { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; }
+  header svg { width: 76px; height: 76px; flex: none; }
+  header h1 { font-size: 30px; line-height: 1.1; margin: 0; font-weight: 700; letter-spacing: -.01em; }
+  header p { margin: 4px 0 0; color: var(--muted); }
+  .pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; background: var(--panel); border: 1px solid var(--line); font: 500 13px var(--mono); white-space: nowrap; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--off); flex: none; }
+  .dot.ok { background: var(--ok); box-shadow: 0 0 0 4px color-mix(in srgb, var(--ok) 20%, transparent); }
+  .dot.warn { background: var(--warn); box-shadow: 0 0 0 4px color-mix(in srgb, var(--warn) 20%, transparent); animation: pulse 1.2s ease-in-out infinite; }
+  .dot.bad { background: var(--bad); }
+  @keyframes pulse { 50% { opacity: .4; } }
+  @media (prefers-reduced-motion: reduce) { .dot.warn { animation: none; } }
+  .head-right { margin-left: auto; display: flex; gap: 8px; flex-wrap: wrap; }
+
+  /* Connections */
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); }
+  .conn { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+  .conn-top { display: flex; align-items: center; gap: 10px; }
+  .conn-name { font-weight: 600; }
+  .conn-state { margin-left: auto; font: 12px var(--mono); color: var(--muted); }
+  .conn-detail { color: var(--muted); font-size: 13px; overflow-wrap: anywhere; }
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+  .chip { font: 12px var(--mono); padding: 3px 9px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); display: inline-flex; align-items: center; gap: 6px; }
+
+  /* Now */
+  .two { display: grid; gap: 12px; grid-template-columns: 1.3fr 1fr; }
+  @media (max-width: 720px) { .two { grid-template-columns: 1fr; } }
+  .focus-task { font-size: 22px; font-weight: 600; line-height: 1.3; margin: 2px 0 6px; }
+  ul.list { list-style: none; margin: 0; padding: 0; }
+  ul.list li { padding: 12px 0; border-top: 1px solid var(--line); display: flex; gap: 12px; align-items: baseline; }
+  ul.list li:first-child { border-top: 0; padding-top: 0; }
+  ul.list li:last-child { padding-bottom: 0; }
+  .when { font: 12px var(--mono); color: var(--muted); white-space: nowrap; margin-left: auto; }
+  .tag { font: 12px var(--mono); color: var(--blue-soft); white-space: nowrap; }
+  .empty { color: var(--faint); font-style: italic; }
+
+  /* Tools */
+  .tools { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); }
+  .tool { padding: 14px 16px; }
+  .tool code { font: 500 13px var(--mono); color: var(--blue-soft); overflow-wrap: anywhere; }
+  .tool p { margin: 6px 0 0; color: var(--muted); font-size: 13px; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .tool .kind { float: right; font: 11px var(--mono); color: var(--faint); text-transform: uppercase; letter-spacing: .06em; margin-left: 8px; }
+
+  details { margin-top: 12px; }
+  summary { cursor: pointer; color: var(--muted); font: 13px var(--mono); }
+  pre { white-space: pre-wrap; font: 13px/1.6 var(--mono); color: var(--muted); margin: 12px 0 0; max-height: 420px; overflow: auto; }
+  dl { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; margin: 0; font-size: 13px; }
+  dt { color: var(--muted); } dd { margin: 0; font-family: var(--mono); overflow-wrap: anywhere; }
+
+  /* Token gate */
+  #gate { max-width: 420px; margin: 12vh auto 0; text-align: center; }
+  #gate svg { width: 96px; height: 96px; }
+  #gate form { display: flex; gap: 8px; margin-top: 18px; }
+  input { flex: 1; min-width: 0; padding: 10px 12px; border-radius: 10px; border: 1px solid var(--line); background: var(--panel); color: var(--fg); font: 14px var(--mono); }
+  button { padding: 10px 16px; border-radius: 10px; border: 0; background: var(--blue); color: #fff; font: 600 14px var(--sans); cursor: pointer; }
+  button.ghost { background: transparent; border: 1px solid var(--line); color: var(--muted); padding: 6px 12px; font-size: 13px; }
+  .err { color: var(--bad); font-size: 14px; margin-top: 10px; min-height: 1.5em; }
+  button.connect { font: 500 13px var(--sans); padding: 7px 12px; border-radius: 999px; display: inline-flex; align-items: center; gap: 6px; }
+  button.connect.re { background: transparent; border: 1px solid var(--blue); color: var(--blue-soft); }
+  button:disabled { opacity: .55; cursor: default; }
+  form.other { display: flex; gap: 8px; margin-top: 12px; max-width: 420px; }
+  form.other input { padding: 7px 12px; font-size: 13px; }
+  #connectMsg.err { color: var(--bad); margin-top: 0; min-height: 0; font-size: 12px; }
+  a.page-link { color: var(--blue-soft); font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+  a.page-link:hover { text-decoration: underline; }
+  ul.list li button.del { padding: 3px 10px; font-size: 12px; flex: none; }
+  footer { margin-top: 48px; display: flex; gap: 12px; align-items: center; color: var(--faint); font: 12px var(--mono); flex-wrap: wrap; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+
+<template id="blob">
+  <!-- Desku: blue blob, round glasses, bushy white brows, mustache. -->
+  <svg viewBox="0 0 120 120" aria-hidden="true">
+    <path d="M60 12c27 0 46 19 46 48 0 30-17 48-46 48S14 90 14 60c0-29 19-48 46-48z" fill="#4a9be8"/>
+    <path d="M60 12c27 0 46 19 46 48 0 6-1 11-2 16-6-28-24-46-50-50 2-9 3-13 6-14z" fill="#9ccbff" opacity=".25"/>
+    <path d="M28 40c6-7 16-8 23-3M69 37c7-5 17-4 23 3" stroke="#fbfdff" stroke-width="6" stroke-linecap="round" fill="none"/>
+    <circle cx="41" cy="56" r="12" fill="#08182a" fill-opacity=".18" stroke="#08182a" stroke-width="3.5"/>
+    <circle cx="79" cy="56" r="12" fill="#08182a" fill-opacity=".18" stroke="#08182a" stroke-width="3.5"/>
+    <path d="M53 55q7-4 14 0" stroke="#08182a" stroke-width="3.5" fill="none"/>
+    <circle class="eye" cx="42" cy="57" r="3.6" fill="#08182a"/>
+    <circle class="eye" cx="78" cy="57" r="3.6" fill="#08182a"/>
+    <path d="M36 80c8-7 17-7 24-2 7-5 16-5 24 2-7 4-16 5-24 0-8 5-17 4-24 0z" fill="#fbfdff"/>
+  </svg>
+</template>
+
+<div id="gate" hidden>
+  <div class="blob-slot"></div>
+  <h1 style="margin:12px 0 4px">Desku agent</h1>
+  <p class="muted">Enter the desk token (<span class="mono">DEVICE_TOKEN</span> in <span class="mono">server/.env</span>) to see what Desku is connected to and what it remembers.</p>
+  <form id="gateForm">
+    <input id="token" type="password" placeholder="Desk token" autocomplete="off" aria-label="Desk token">
+    <button type="submit">Open</button>
+  </form>
+  <div class="err" id="gateErr"></div>
+</div>
+
+<main id="app" hidden>
+  <header>
+    <div class="blob-slot"></div>
+    <div>
+      <h1 id="name">Desku</h1>
+      <p id="tagline">Your desk buddy's brain, connections and memory.</p>
+    </div>
+    <div class="head-right">
+      <span class="pill"><span class="dot" id="mainDot"></span><span id="mainState">…</span></span>
+    </div>
+  </header>
+
+  <section>
+    <h2>Connected to</h2>
+    <div class="grid" id="connections"></div>
+    <div class="panel" id="connectPanel" style="margin-top:12px" hidden>
+      <div class="conn-top"><span class="conn-name">Connect an app</span><span class="conn-state" id="connectMsg"></span></div>
+      <div class="conn-detail" style="margin-top:4px">Opens the app's sign-in in a new tab. Approve there, then come back here.</div>
+      <div class="chips" id="connectButtons" style="margin-top:12px"></div>
+      <form id="connectOther" class="other">
+        <input id="otherSlug" placeholder="Other app, e.g. todoist" autocomplete="off" aria-label="Other app slug" spellcheck="false">
+        <button type="submit" class="ghost">Connect</button>
+      </form>
+    </div>
+  </section>
+
+  <section>
+    <h2>Right now</h2>
+    <div class="two">
+      <div class="panel">
+        <div class="muted" style="font-size:13px">Working on</div>
+        <div id="focus"></div>
+        <h2 style="margin-top:22px">Recent focus</h2>
+        <ul class="list" id="history"></ul>
+      </div>
+      <div class="panel">
+        <h2>Upcoming check-ins</h2>
+        <ul class="list" id="checkins"></ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <h2>Pages Desku made <span id="pageCount" class="muted"></span></h2>
+    <div class="panel"><ul class="list" id="pages"></ul></div>
+  </section>
+
+  <section>
+    <h2>Remembers <span id="memCount" class="muted"></span></h2>
+    <div class="panel"><ul class="list" id="memories"></ul></div>
+  </section>
+
+  <section>
+    <h2>Can do <span id="toolCount" class="muted"></span></h2>
+    <div class="tools" id="tools"></div>
+  </section>
+
+  <section>
+    <h2>Under the hood</h2>
+    <div class="panel">
+      <dl id="ids"></dl>
+      <details><summary>Agent instructions</summary><pre id="instructions"></pre></details>
+    </div>
+  </section>
+
+  <footer>
+    <span id="updated">–</span>
+    <span style="flex:1"></span>
+    <button class="ghost" id="signOut">Forget token</button>
+  </footer>
+</main>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const POLL_MS = 5000;
+let token = "";
+try { token = localStorage.getItem("desku.token") || ""; } catch {}
+let timer = null, last = null;
+
+document.querySelectorAll(".blob-slot").forEach((el) => el.replaceWith($("blob").content.cloneNode(true)));
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+function ago(ms, now) {
+  const s = Math.max(0, Math.round((now - ms) / 1000));
+  if (s < 60) return "just now";
+  const m = Math.round(s / 60); if (m < 60) return `${m} min ago`;
+  const h = Math.round(m / 60); if (h < 24) return `${h} h ago`;
+  return `${Math.round(h / 24)} d ago`;
+}
+function until(ms, now) {
+  const m = Math.ceil((ms - now) / 60000);
+  if (m <= 0) return "due now";
+  if (m < 60) return `in ${m} min`;
+  return `in ${Math.floor(m / 60)} h ${m % 60} min`;
+}
+function clock(ms, tz) {
+  return new Intl.DateTimeFormat(undefined, { timeZone: tz, weekday: "short", hour: "numeric", minute: "2-digit" }).format(ms);
+}
+const APP_NAMES = { googlecalendar: "Google Calendar", gmail: "Gmail", slack: "Slack", notion: "Notion", github: "GitHub", googledrive: "Google Drive", linear: "Linear", googlesheets: "Google Sheets", googledocs: "Google Docs", outlook: "Outlook", todoist: "Todoist" };
+// Slugs checked against Composio; anything else goes through the "Other app" box.
+const CONNECTABLE = ["googlecalendar", "gmail", "slack", "notion", "github", "googledrive", "linear", "outlook"];
+let connecting = null;
+const appName = (slug) => APP_NAMES[slug] || slug.replace(/^./, (c) => c.toUpperCase());
+
+function conn(name, on, state, detail, extra = "") {
+  const cls = on === true ? "ok" : on === "busy" ? "warn" : on === "bad" ? "bad" : "";
+  return `<div class="panel conn">
+    <div class="conn-top"><span class="dot ${cls}"></span><span class="conn-name">${esc(name)}</span><span class="conn-state">${esc(state)}</span></div>
+    <div class="conn-detail">${detail}</div>${extra}</div>`;
+}
+
+function render(d) {
+  const s = d.status, now = d.now;
+  $("name").textContent = d.agent.name || "Desku";
+
+  // Headline state
+  let main = ["", "Desk phone offline"];
+  if (s.calling) main = ["warn", "Calling your phone"];
+  else if (s.thinking) main = ["warn", "Thinking"];
+  else if (s.voice === "open") main = ["ok", s.muted ? "Listening paused" : "In a conversation"];
+  else if (s.voice === "connecting") main = ["warn", "Waking up"];
+  else if (s.device) main = ["ok", "On the desk, dozing"];
+  $("mainDot").className = `dot ${main[0]}`;
+  $("mainState").textContent = main[1];
+
+  // Connections
+  const apps = d.apps;
+  // One chip per app: retries leave old expired attempts behind, so keep the best status.
+  const RANK = { ACTIVE: 0, INITIATED: 1, INITIALIZING: 1 };
+  const byApp = new Map();
+  for (const c of apps.connections || []) {
+    const prev = byApp.get(c.app);
+    if (!prev || (RANK[c.status] ?? 9) < (RANK[prev.status] ?? 9)) byApp.set(c.app, c);
+  }
+  const conns = [...byApp.values()];
+  const active = conns.filter((c) => c.status === "ACTIVE");
+  const pending = conns.filter((c) => c.status !== "ACTIVE");
+  const appChips = apps.enabled && conns.length
+    ? `<div class="chips">${active.map((c) => `<span class="chip"><span class="dot ok"></span>${esc(appName(c.app))}</span>`).join("")}${pending.map((c) => `<span class="chip" title="${esc(c.status)}"><span class="dot"></span>${esc(appName(c.app))} · ${RANK[c.status] === 1 ? "connecting" : esc(c.status.toLowerCase())}</span>`).join("")}</div>`
+    : "";
+  const away = s.awayCalls;
+  $("connections").innerHTML = [
+    conn("Desk phone", s.device ? true : false, s.device ? "online" : "offline",
+      s.device ? `Camera ${s.camera ? "on" : "off"}${s.muted ? " · mic muted" : ""}` : "Waiting for the phone to connect over Wi-Fi."),
+    conn("Voice", s.voice === "open" ? true : s.voice === "connecting" ? "busy" : false, s.voice === "open" ? "live" : s.voice,
+      `<span class="mono">${esc(d.voice.model)}</span> · voice “${esc(d.voice.voice)}”. Opens on Talk, the wake word or a check-in; closes after ${d.voice.idleCloseSeconds}s of quiet.`),
+    conn("Brain", d.agent.sessionId ? true : false, d.agent.sessionId ? "session open" : "no session yet",
+      `Agents API · <span class="mono">${esc(d.agent.model)}</span>${d.agent.reasoning ? ` · ${esc(d.agent.reasoning)} reasoning` : ""}. Keeps the conversation across voice sessions.`),
+    conn("Your apps", apps.enabled ? (apps.error ? "bad" : active.length ? true : false) : false,
+      !apps.enabled ? "off" : apps.error ? "error" : `${active.length} connected`,
+      !apps.enabled ? "Composio isn't set up. Add <span class=\"mono\">COMPOSIO_API_KEY</span> to connect Calendar, Gmail, Slack and more."
+        : apps.error ? `Couldn't list apps: ${esc(apps.error)}`
+        : active.length ? "Through Composio. Desku reads when you ask and checks with you before changing anything."
+        : "Composio is on, but no apps are connected yet. Connect one below, or ask Desku about your calendar.",
+      appChips),
+    conn("Phone calls", away ? (s.calling ? "busy" : true) : false, away ? (s.calling ? "calling" : "on") : "off",
+      away ? `Calls ${esc(away.to)} from <span class="mono">${esc(d.phone.number)}</span> when a check-in finds nobody at the desk for ${away.afterSeconds}s.${away.quietHours ? ` Never between ${away.quietHours[0]}:00 and ${away.quietHours[1]}:00.` : ""}`
+        : "AgentPhone isn't set up. Add <span class=\"mono\">AGENTPHONE_API_KEY</span> and <span class=\"mono\">OWNER_PHONE</span>."),
+    conn("Web search", d.tools.some((t) => t.name === "web_search"), d.tools.some((t) => t.name === "web_search") ? "on" : "off",
+      "Looks up current facts when you ask."),
+  ].join("");
+
+  // Connect buttons: the common apps that aren't connected yet.
+  $("connectPanel").hidden = !apps.enabled;
+  if (apps.enabled) {
+    const missing = CONNECTABLE.filter((slug) => byApp.get(slug)?.status !== "ACTIVE");
+    const html = missing.map((slug) => {
+      const stale = byApp.has(slug);
+      return `<button class="connect${stale ? " re" : ""}" data-app="${slug}" ${connecting === slug ? "disabled" : ""}>${stale ? "Reconnect" : "+"} ${esc(appName(slug))}</button>`;
+    }).join("") || `<span class="muted" style="font-size:13px">All the usual apps are connected.</span>`;
+    if ($("connectButtons").innerHTML !== html) $("connectButtons").innerHTML = html;
+  }
+
+  // Focus
+  $("focus").innerHTML = d.focus
+    ? `<div class="focus-task">${esc(d.focus.task)}</div><div class="muted mono" style="font-size:13px">started ${ago(d.focus.startedAt, now)}</div>`
+    : `<div class="focus-task empty" style="font-size:18px">Nothing set. Tell Desku what you're working on.</div>`;
+  const hist = d.focusHistory;
+  $("history").innerHTML = hist.length
+    ? hist.map((f) => `<li><span>${esc(f.task)}${f.outcome ? `<div class="muted" style="font-size:13px">${esc(f.outcome)}</div>` : ""}</span><span class="when">${f.doneAt ? "done " + ago(f.doneAt, now) : ago(f.startedAt, now)}</span></li>`).join("")
+    : `<li class="empty">No earlier focus yet.</li>`;
+
+  // Check-ins
+  $("checkins").innerHTML = d.checkins.length
+    ? d.checkins.map((c) => `<li><span>${esc(c.about.replace(/^Focus check-in: /, ""))}<div class="muted mono" style="font-size:12px">${clock(c.dueAt, d.timeZone)}</div></span><span class="tag">${until(c.dueAt, now)}</span></li>`).join("")
+    : `<li class="empty">None scheduled. Desku sets one when you start a focus timer.</li>`;
+
+  // Pages
+  const pageList = d.pages || [];
+  $("pageCount").textContent = `· ${pageList.length}`;
+  $("pages").innerHTML = pageList.length
+    ? pageList.map((p) => `<li><a class="page-link" href="/p/${esc(p.id)}" target="_blank" rel="noopener noreferrer">${esc(p.title)}</a><span class="when">${p.updatedAt > p.createdAt ? "updated " : ""}${ago(p.updatedAt, now)}</span><button class="ghost del" data-page="${esc(p.id)}" aria-label="Delete ${esc(p.title)}">Delete</button></li>`).join("")
+    : `<li class="empty">None yet. Ask Desku to put something on screen, like "show me my open tickets".</li>`;
+
+  // Memories
+  $("memCount").textContent = `· ${d.memories.length}`;
+  $("memories").innerHTML = d.memories.length
+    ? d.memories.map((m) => `<li><span class="tag">${esc(m.id)}</span><span>${esc(m.text)}</span><span class="when">${ago(m.createdAt, now)}</span></li>`).join("")
+    : `<li class="empty">Nothing yet. Desku only saves what you ask it to remember.</li>`;
+
+  // Tools
+  const order = { desk: 0, hosted: 1, apps: 2 };
+  const label = { desk: "desk", hosted: "openai", apps: "composio" };
+  const tools = [...d.tools].sort((a, b) => order[a.kind] - order[b.kind]);
+  $("toolCount").textContent = `· ${tools.length}`;
+  $("tools").innerHTML = tools.map((t) =>
+    `<div class="panel tool"><span class="kind">${label[t.kind]}</span><code>${esc(t.name)}</code><p>${esc(t.description.split("\n")[0])}</p></div>`).join("");
+
+  // IDs
+  $("ids").innerHTML = [
+    ["Agent", d.agent.agentId], ["Brain session", d.agent.sessionId], ["Project", d.agent.project],
+    ["Apps user", apps.user], ["Time zone", d.timeZone],
+  ].filter(([, v]) => v).map(([k, v]) => `<dt>${k}</dt><dd>${esc(v)}</dd>`).join("");
+  if ($("instructions").textContent !== d.agent.instructions) $("instructions").textContent = d.agent.instructions || "";
+
+  $("updated").textContent = `Updated ${new Date(now).toLocaleTimeString()} · refreshes every ${POLL_MS / 1000}s`;
+}
+
+async function load() {
+  try {
+    const res = await fetch("/api/overview", { headers: { Authorization: `Bearer ${token}` } });
+    if (res.status === 401) return showGate(token ? "That token didn't work." : "");
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    last = await res.json();
+    $("gate").hidden = true; $("app").hidden = false;
+    render(last);
+  } catch (e) {
+    if (last) $("updated").textContent = `Can't reach the engine (${e.message}). Retrying…`;
+    else showGate(`Can't reach the engine: ${e.message}`);
+  }
+}
+
+function showGate(msg) {
+  clearInterval(timer); timer = null;
+  $("app").hidden = true; $("gate").hidden = false;
+  $("gateErr").textContent = msg;
+  $("token").focus();
+}
+
+function start() {
+  clearInterval(timer);
+  load();
+  timer = setInterval(load, POLL_MS);
+}
+
+$("gateForm").addEventListener("submit", (e) => {
+  e.preventDefault();
+  token = $("token").value.trim();
+  try { localStorage.setItem("desku.token", token); } catch {}
+  start();
+});
+$("signOut").addEventListener("click", () => {
+  token = ""; last = null;
+  try { localStorage.removeItem("desku.token"); } catch {}
+  $("token").value = "";
+  showGate("");
+});
+async function connectApp(slug) {
+  slug = slug.trim().toLowerCase().replace(/[\s-]+/g, "");
+  if (!slug || connecting) return;
+  // Open the tab now, inside the click: a window.open after the fetch would be popup-blocked.
+  const tab = window.open("", "_blank");
+  if (tab) { tab.opener = null; tab.document.title = "Connecting…"; tab.document.body.textContent = `Getting the ${appName(slug)} sign-in link…`; }
+  connecting = slug;
+  $("connectMsg").className = "conn-state"; $("connectMsg").textContent = `getting ${appName(slug)} link…`;
+  if (last) render(last);
+  try {
+    const res = await fetch("/api/apps/connect", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ app: slug }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (res.status === 401) { tab?.close(); return showGate("That token didn't work."); }
+    if (!res.ok || !body.url) throw new Error(body.error || `HTTP ${res.status}`);
+    if (tab && !tab.closed) tab.location.href = body.url;
+    else window.location.assign(body.url); // popups blocked: go there in this tab instead
+    $("connectMsg").textContent = `finish in the new tab, then come back`;
+    load();
+  } catch (e) {
+    tab?.close();
+    $("connectMsg").className = "conn-state err";
+    $("connectMsg").textContent = `${appName(slug)}: ${e.message}`;
+  } finally {
+    connecting = null;
+    if (last) render(last);
+  }
+}
+$("pages").addEventListener("click", async (e) => {
+  const btn = e.target.closest("button[data-page]");
+  if (!btn || !confirm("Delete this page? Its link will stop working.")) return;
+  btn.disabled = true;
+  await fetch(`/api/pages/${encodeURIComponent(btn.dataset.page)}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+  load();
+});
+$("connectButtons").addEventListener("click", (e) => {
+  const btn = e.target.closest("button[data-app]");
+  if (btn) connectApp(btn.dataset.app);
+});
+$("connectOther").addEventListener("submit", (e) => {
+  e.preventDefault();
+  connectApp($("otherSlug").value);
+  $("otherSlug").value = "";
+});
+
+document.addEventListener("visibilitychange", () => { if (!document.hidden && token && timer) load(); });
+
+if (token) start(); else showGate("");
+</script>
+</body>
+</html>

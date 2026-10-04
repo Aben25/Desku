@@ -1,0 +1,185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Desku test client</title>
+<style>
+  :root { --bg: #f6f4ef; --fg: #1d1c1a; --muted: #6b6860; --card: #fff; --line: #e3dfd6; --accent: #2f6f5e; --warn: #a33b2b; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #161614; --fg: #ecebe6; --muted: #9a978e; --card: #1f1f1c; --line: #33322e; --accent: #6cc3a8; --warn: #e07a68; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 20px 16px 40px; display: grid; gap: 14px; }
+  h1 { font-size: 20px; margin: 0; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  input { flex: 1; min-width: 180px; padding: 8px 10px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); }
+  button { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--fg); cursor: pointer; font: inherit; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button:disabled { opacity: .5; cursor: default; }
+  #status { color: var(--muted); }
+  #orb { width: 14px; height: 14px; border-radius: 50%; background: var(--line); }
+  #orb.open { background: var(--accent); } #orb.thinking { background: #d8a630; } #orb.connecting { background: var(--muted); }
+  #log { height: 300px; overflow-y: auto; white-space: pre-wrap; }
+  .user { color: var(--muted); } .err { color: var(--warn); }
+  #cam { position: relative; display: none; } #cam video { width: 100%; border-radius: 8px; }
+  #count { position: absolute; inset: 0; display: grid; place-items: center; font-size: 72px; color: #fff; text-shadow: 0 2px 12px #000; }
+  ul { margin: 6px 0 0; padding-left: 18px; } li button { padding: 0 6px; margin-left: 6px; font-size: 12px; }
+  h2 { font-size: 14px; margin: 0 0 4px; color: var(--muted); font-weight: 600; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Desku test client</h1>
+  <div class="card row">
+    <input id="token" placeholder="DEVICE_TOKEN from server/.env" type="password" autocomplete="off">
+    <button id="connect" class="primary">Connect</button>
+  </div>
+  <div class="card row">
+    <div id="orb"></div><span id="status">disconnected</span>
+    <span style="flex:1"></span>
+    <button id="talk" disabled>Talk</button>
+    <button id="mute" disabled>Mute</button>
+    <button id="camera" disabled>Camera: on</button>
+  </div>
+  <div class="card" id="cam"><video autoplay playsinline muted></video><div id="count"></div></div>
+  <div class="card"><div id="log"></div></div>
+  <div class="card">
+    <h2>Focus</h2><div id="focus">–</div>
+    <h2 style="margin-top:10px">Check-ins</h2><ul id="checkins"></ul>
+    <h2 style="margin-top:10px">Memories <button id="forgetAll">Forget all</button></h2><ul id="memories"></ul>
+  </div>
+</main>
+<script>
+// A laptop stand-in for the desk phone, speaking the same protocol: 24 kHz PCM16 mic audio up as
+// binary frames, Desku's speech down as binary frames, JSON for everything else.
+const $ = (id) => document.getElementById(id);
+const RATE = 24000;
+let ws, ctx, micNode, micStream, playAt = 0, state = {};
+
+try { $("token").value = localStorage.getItem("desku.token") || ""; } catch {}
+
+function log(text, cls) {
+  const el = document.createElement("div");
+  if (cls) el.className = cls;
+  el.textContent = text;
+  $("log").append(el);
+  $("log").scrollTop = $("log").scrollHeight;
+  return el;
+}
+let lastRole, lastLine;
+function transcript(role, delta) {
+  if (role !== lastRole) { lastLine = log(role === "user" ? "You: " : "Desku: ", role === "user" ? "user" : ""); lastRole = role; }
+  lastLine.textContent += delta;
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+$("connect").onclick = async () => {
+  const token = $("token").value.trim();
+  try { localStorage.setItem("desku.token", token); } catch {}
+  ctx = new AudioContext({ sampleRate: RATE });
+  ws = new WebSocket(`${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/device?token=${encodeURIComponent(token)}`);
+  ws.binaryType = "arraybuffer";
+  ws.onopen = () => { ["talk", "mute", "camera"].forEach((b) => ($(b).disabled = false)); log("connected"); startMic(); };
+  ws.onclose = (e) => { $("status").textContent = `disconnected (${e.code})`; $("orb").className = ""; };
+  ws.onmessage = (e) => (typeof e.data === "string" ? onMessage(JSON.parse(e.data)) : play(e.data));
+};
+
+function onMessage(m) {
+  if (m.type === "state") {
+    state = m;
+    $("orb").className = m.thinking ? "thinking" : m.live;
+    $("status").textContent = m.thinking ? "thinking" : { idle: "sleeping", connecting: "waking up", open: "listening" }[m.live];
+    $("talk").textContent = m.live === "idle" ? "Talk" : "Stop";
+    $("mute").textContent = m.muted ? "Unmute" : "Mute";
+    $("camera").textContent = `Camera: ${m.camera ? "on" : "off"}`;
+  } else if (m.type === "transcript") transcript(m.role, m.delta);
+  else if (m.type === "desk") renderDesk(m);
+  else if (m.type === "capture") capture(m.requestId, m.countdownSeconds);
+  else if (m.type === "checkin") log(`⏰ check-in: ${m.about}`);
+  else if (m.type === "error") log(m.message, "err");
+  else if (m.type === "link") {
+    const el = log(`🔗 ${m.label}: `);
+    el.append(Object.assign(document.createElement("a"), { href: m.url, target: "_blank", rel: "noopener", textContent: m.url }));
+  } else if (m.type === "calling") log(`📞 calling your phone: ${m.about}`);
+  else if (m.type === "page") {
+    const el = log(`🖥 ${m.title}: `);
+    el.append(Object.assign(document.createElement("a"), { href: m.url, target: "_blank", rel: "noopener", textContent: "open page" }));
+  }
+}
+
+function renderDesk(d) {
+  $("focus").textContent = d.focus ? d.focus.task : "–";
+  $("checkins").replaceChildren(...d.checkins.map((c) => Object.assign(document.createElement("li"), { textContent: `${new Date(c.dueAt).toLocaleTimeString()} – ${c.about}` })));
+  $("memories").replaceChildren(...d.memories.map((mem) => {
+    const li = document.createElement("li");
+    li.textContent = mem.text;
+    const b = Object.assign(document.createElement("button"), { textContent: "forget", onclick: () => ws.send(JSON.stringify({ type: "forget", id: mem.id })) });
+    li.append(b);
+    return li;
+  }));
+}
+
+$("talk").onclick = () => { ctx.resume(); ws.send(JSON.stringify({ type: state.live === "idle" ? "start" : "stop" })); };
+$("mute").onclick = () => ws.send(JSON.stringify({ type: state.muted ? "unmute" : "mute" }));
+$("camera").onclick = () => ws.send(JSON.stringify({ type: "camera", enabled: !state.camera }));
+$("forgetAll").onclick = () => ws && ws.send(JSON.stringify({ type: "forget_all" }));
+
+async function startMic() {
+  // Echo cancellation matters: GPT-Live is full duplex and would otherwise hear itself.
+  micStream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, channelCount: 1 } });
+  const worklet = `registerProcessor("pcm", class extends AudioWorkletProcessor {
+    constructor() { super(); this.buf = new Int16Array(2400); this.n = 0; }
+    process([input]) {
+      const ch = input[0]; if (!ch) return true;
+      for (let i = 0; i < ch.length; i++) {
+        const s = Math.max(-1, Math.min(1, ch[i])); this.buf[this.n++] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        if (this.n === this.buf.length) { this.port.postMessage(this.buf.buffer.slice(0)); this.n = 0; }
+      }
+      return true;
+    }
+  });`;
+  await ctx.audioWorklet.addModule(URL.createObjectURL(new Blob([worklet], { type: "text/javascript" })));
+  micNode = new AudioWorkletNode(ctx, "pcm");
+  micNode.port.onmessage = (e) => { if (ws.readyState === 1 && state.live === "open" && !state.muted) ws.send(e.data); };
+  ctx.createMediaStreamSource(micStream).connect(micNode);
+}
+
+function play(buf) {
+  const pcm = new Int16Array(buf);
+  const audio = ctx.createBuffer(1, pcm.length, RATE);
+  const ch = audio.getChannelData(0);
+  for (let i = 0; i < pcm.length; i++) ch[i] = pcm[i] / 0x8000;
+  const src = ctx.createBufferSource();
+  src.buffer = audio;
+  src.connect(ctx.destination);
+  playAt = Math.max(playAt, ctx.currentTime + 0.05);
+  src.start(playAt);
+  playAt += audio.duration;
+}
+
+async function capture(requestId, seconds) {
+  const reply = (m) => ws.send(JSON.stringify({ requestId, ...m }));
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
+    const video = $("cam").querySelector("video");
+    video.srcObject = stream;
+    $("cam").style.display = "block";
+    for (let s = seconds; s > 0; s--) { $("count").textContent = s; await new Promise((r) => setTimeout(r, 1000)); }
+    $("count").textContent = "";
+    const scale = Math.min(1, 1024 / Math.max(video.videoWidth, video.videoHeight));
+    const canvas = Object.assign(document.createElement("canvas"), { width: video.videoWidth * scale, height: video.videoHeight * scale });
+    canvas.getContext("2d").drawImage(video, 0, 0, canvas.width, canvas.height);
+    reply({ type: "photo", image: canvas.toDataURL("image/jpeg", 0.85).split(",")[1] });
+    log("📷 photo sent");
+  } catch (e) {
+    reply({ type: "photo_error", reason: e.message });
+  } finally {
+    stream && stream.getTracks().forEach((t) => t.stop());
+    $("cam").style.display = "none";
+  }
+}
+</script>
+</body>
+</html>

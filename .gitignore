@@ -1,0 +1,11 @@
+.gradle/
+build/
+/app/build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+# The Vosk wake-word model is fetched by scripts/fetch-wake-model.sh (~40 MB).
+/app/src/main/assets/model-en-us/
+/demo/run-*/
+.env

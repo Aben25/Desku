@@ -1,0 +1,31 @@
+# Desku engine on Fly Machines. Deploy from the repo root: fly deploy --ha=false
+app = "desku-engine"
+primary_region = "ewr"
+
+[build]
+  dockerfile = "Dockerfile"
+
+# Memories, focus, check-ins, pages and the agent link live here (DATA_DIR=/data).
+[mounts]
+  source = "desku_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  # One always-on Machine: it holds the desk phone's WebSocket and fires check-ins on a timer,
+  # and its state is a JSON file on one volume, so it must never scale out or sleep.
+  auto_stop_machines = "off"
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    grace_period = "20s"
+    interval = "30s"
+    method = "GET"
+    path = "/healthz"
+    timeout = "5s"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"

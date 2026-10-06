@@ -238,7 +238,7 @@ test("no credit on the phone line: Desku says so plainly", async () => {
 test("right after startup, an offline phone isn't treated as 'away' yet", async () => {
   const { desk, calls, store, advance } = setup();
   store.cancelCheckins();
-  store.addCheckin(Date.now() - 1000, "Focus check-in: stale");
+  store.addCheckin(Date.parse("2026-10-05T17:59:00Z"), "Focus check-in: stale"); // due a minute before the test clock
   advance(0);
   await desk.tick();
   await tick();

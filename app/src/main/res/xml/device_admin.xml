@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Device owner for the kiosk; the policies are set through DevicePolicyManager in KioskPolicy. -->
+<device-admin>
+    <uses-policies />
+</device-admin>

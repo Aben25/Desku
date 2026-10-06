@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 export interface Memory {
@@ -13,6 +13,14 @@ export interface Focus {
   startedAt: number;
   doneAt?: number;
   outcome?: string;
+}
+
+export interface Todo {
+  id: string;
+  text: string;
+  done: boolean;
+  createdAt: number;
+  doneAt?: number;
 }
 
 export interface Checkin {
@@ -41,6 +49,9 @@ interface State {
   focusHistory: Focus[];
   checkins: Checkin[];
   agent: AgentLink;
+  todos: Todo[];
+  /** The page that shows the user's day on the desk screen; kept so updates replace it. */
+  todayPageId: string | null;
 }
 
 const EMPTY: State = {
@@ -49,6 +60,8 @@ const EMPTY: State = {
   focusHistory: [],
   checkins: [],
   agent: { agentId: null, definitionHash: null, sessionId: null, sessionHash: null, appsSessionId: null },
+  todos: [],
+  todayPageId: null,
 };
 
 /**
@@ -63,6 +76,10 @@ export class Store {
   constructor(dataDir: string, private readonly clock: () => number = Date.now) {
     mkdirSync(dataDir, { recursive: true });
     this.file = join(dataDir, "desku.json");
+    // Data handed over from another engine (scripts/switch-to-cloud.sh) is dropped next to the
+    // live file and only swapped in here, at startup, so a running engine can't overwrite it.
+    const incoming = join(dataDir, "desku.incoming.json");
+    if (existsSync(incoming)) renameSync(incoming, this.file);
     this.state = this.load();
   }
 
@@ -121,6 +138,56 @@ export class Store {
     const done = { ...current, doneAt: this.clock(), outcome: outcome.trim().slice(0, 300) };
     this.save({ ...this.state, focus: null, focusHistory: [...this.state.focusHistory, done].slice(-50) });
     return done;
+  }
+
+  // To-dos
+
+  todos(): Todo[] {
+    return this.state.todos;
+  }
+
+  addTodo(text: string): Todo {
+    const clean = text.trim().slice(0, 200);
+    if (!clean) throw new Error("empty to-do");
+    const next = Math.max(0, ...this.state.todos.map((t) => Number(t.id.slice(1)) || 0)) + 1;
+    const todo = { id: `t${next}`, text: clean, done: false, createdAt: this.clock() };
+    this.save({ ...this.state, todos: [...this.state.todos, todo] });
+    return todo;
+  }
+
+  /** Finds a to-do by id ("t3") or by words in it ("demo video"). */
+  findTodo(idOrWords: string): Todo | null {
+    const q = idOrWords.trim().toLowerCase();
+    if (!q) return null;
+    return (
+      this.state.todos.find((t) => t.id === q) ??
+      this.state.todos.find((t) => !t.done && t.text.toLowerCase().includes(q)) ??
+      this.state.todos.find((t) => t.text.toLowerCase().includes(q)) ??
+      null
+    );
+  }
+
+  setTodoDone(id: string, done: boolean): Todo | null {
+    const found = this.state.todos.find((t) => t.id === id);
+    if (!found) return null;
+    const updated = { ...found, done, doneAt: done ? this.clock() : undefined };
+    this.save({ ...this.state, todos: this.state.todos.map((t) => (t.id === id ? updated : t)) });
+    return updated;
+  }
+
+  removeTodo(id: string): boolean {
+    const remaining = this.state.todos.filter((t) => t.id !== id);
+    if (remaining.length === this.state.todos.length) return false;
+    this.save({ ...this.state, todos: remaining });
+    return true;
+  }
+
+  todayPageId(): string | null {
+    return this.state.todayPageId;
+  }
+
+  setTodayPageId(id: string) {
+    this.save({ ...this.state, todayPageId: id });
   }
 
   // Check-ins

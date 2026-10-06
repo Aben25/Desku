@@ -13,6 +13,8 @@ export interface ToolContext {
   now: () => number;
   /** What the user said that led to this brain turn; empty for app-initiated turns. */
   userWords: string;
+  /** The user's last few turns, for consent that builds up over a short exchange (calls). */
+  recentUserWords?: string;
   previousAssistant: string | null;
   cameraOn: () => boolean;
   /** Asks the phone for one photo (with countdown). Resolves to base64 JPEG. */
@@ -27,6 +29,8 @@ export interface ToolContext {
   control?: (action: DeskAction) => string;
   /** Web pages Desku writes for the desk screen, and where to announce a new or updated one. */
   pages?: Pages | null;
+  /** The to-do list changed, or the user asked to see their day: refresh the Today screen. */
+  showToday?: () => void;
   /** Whether the always-on camera sees someone at the desk (null = unknown), and for how long. */
   presence?: () => { atDesk: boolean | null; minutes: number };
   onPage?: (page: Page) => void;
@@ -79,6 +83,8 @@ export function makeTools(ctx: ToolContext): ToolRunner {
             focus: focus && { task: focus.task, minutes_ago: Math.floor((now - focus.startedAt) / 60_000) },
             recently_finished: store.recentFocus(3).filter((f) => f.doneAt).map((f) => ({ task: f.task, outcome: f.outcome })),
             memories: store.memories().map(({ id, text }) => ({ id, text })),
+            todos: store.todos().filter((t) => !t.done).map(({ id, text }) => ({ id, text })),
+            done_today: store.todos().filter((t) => t.done && t.doneAt && now - t.doneAt < 24 * 3600_000).map((t) => t.text),
             due_checkins: pending.filter((c) => c.dueAt <= now).map((c) => c.about),
             upcoming_checkins: pending
               .filter((c) => c.dueAt > now)
@@ -134,13 +140,33 @@ export function makeTools(ctx: ToolContext): ToolRunner {
         const raw = str(args.to);
         const to = raw ? raw.replace(/[^\d+]/g, "") : null;
         if (to && !/^\+1\d{10}$/.test(to)) return err(`"${raw}" isn't a US or Canada number in +1XXXXXXXXXX form. Ask the user to repeat it.`);
-        if (to && !allowsCall(ctx.userWords, ctx.previousAssistant)) {
+        if (to && !allowsCall(`${ctx.recentUserWords ?? ""} ${ctx.userWords}`, ctx.previousAssistant)) {
           return err("Not called: the user's own words didn't ask for this call. Read the number back and ask if you should call it.");
         }
         const problem = ctx.placeCall({ to, reason: str(args.reason) || "a quick chat", callerName: str(args.caller_name) || null });
         if (problem) return err(problem);
         return ok(to ? `Calling ${to} now. You'll hear back how it went when the call ends.` : "Calling the user's phone now. It should ring in a few seconds.");
       }
+      case "add_todo": {
+        const text = str(args.text);
+        if (!text) return err("text is required");
+        const todo = store.addTodo(text);
+        ctx.showToday?.();
+        return ok(`Added "${todo.text}" as ${todo.id}. It's on the Today screen now. Open to-dos: ${store.todos().filter((t) => !t.done).map((t) => t.text).join("; ")}`);
+      }
+      case "complete_todo":
+      case "remove_todo": {
+        const todo = store.findTodo(str(args.todo));
+        if (!todo) return err(`No to-do matches "${str(args.todo)}". Open to-dos: ${store.todos().filter((t) => !t.done).map((t) => `${t.id} ${t.text}`).join("; ") || "none"}`);
+        if (name === "complete_todo") store.setTodoDone(todo.id, true);
+        else store.removeTodo(todo.id);
+        ctx.showToday?.();
+        return ok(`${name === "complete_todo" ? "Checked off" : "Removed"} "${todo.text}". The Today screen is updated.`);
+      }
+      case "show_today":
+        if (!ctx.showToday) return err("The desk screen isn't connected.");
+        ctx.showToday();
+        return ok("The Today screen (to-dos, focus, memories) is on the desk screen.");
       case "show_page": {
         if (!ctx.pages) return err("Pages aren't available on this server.");
         try {

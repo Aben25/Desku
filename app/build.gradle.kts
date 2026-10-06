@@ -18,6 +18,8 @@ val debugApiKey = localProps.getProperty("anthropic.apiKey", "")
 // (desku.serverUrl=ws://…:8787, desku.deviceToken=…), so the kiosk connects on first launch.
 val debugServerUrl = localProps.getProperty("desku.serverUrl", "")
 val debugDeviceToken = localProps.getProperty("desku.deviceToken", "")
+// Admin PIN to leave the locked kiosk (device-owner mode). Kept in local.properties, never in git.
+val kioskPin = localProps.getProperty("desku.kioskPin", "")
 
 android {
     namespace = "com.deskbuddy"
@@ -34,6 +36,7 @@ android {
         buildConfigField("String", "DEFAULT_API_KEY", "\"\"")
         buildConfigField("String", "DEFAULT_SERVER_URL", "\"\"")
         buildConfigField("String", "DEFAULT_DEVICE_TOKEN", "\"\"")
+        buildConfigField("String", "KIOSK_PIN", "\"$kioskPin\"")
     }
 
     buildTypes {

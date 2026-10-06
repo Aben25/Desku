@@ -136,7 +136,10 @@ export class AgentBrain implements Brain {
           onSession(event.session.id);
           break;
         case "agent.session.turn.output_text.done":
-          unsent = unsent ? `${unsent} ${event.text}` : event.text;
+          // Keep only the latest message: earlier ones were "still checking…" updates, and
+          // gluing them together made Desku say all of them in one long answer.
+          if (unsent) said.push(unsent);
+          unsent = event.text;
           break;
         case "agent.session.requires_action": {
           const session = event.session;

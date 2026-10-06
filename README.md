@@ -50,6 +50,30 @@ Tested on Oct 5, 2026 on a Pixel 7a over USB:
 - The user answered out loud through the phone's mic, and Desku set their focus from it.
 - An email question produced a Gmail connect link on screen.
 
+## Locked kiosk (device owner)
+
+Desku can lock a phone so it runs only Desku. There's no home screen, app switcher, notifications, status bar or lock screen. It boots straight into Desku, keeps the screen on while charging, can't be uninstalled, and blocks factory reset and safe boot. The code is in `app/src/main/java/com/deskbuddy/kiosk/`.
+
+1. The phone must have no accounts signed in.
+2. Install the app.
+3. Run:
+
+```bash
+adb shell dpm set-device-owner com.deskbuddy/.kiosk.DeskuAdmin
+```
+
+The admin PIN is `desku.kioskPin` in `local.properties`, which isn't committed.
+
+**To get out:** hold the top of the screen for 5 seconds and enter the PIN. **Settings** opens the app settings; **Unlock phone** removes the kiosk and device owner. Debug builds can also do this over USB:
+
+```bash
+adb shell am broadcast -p com.deskbuddy -a com.deskbuddy.debug.KIOSK_EXIT --es pin <PIN>
+```
+
+If the PIN is lost, the only way out is a factory reset from recovery mode.
+
+Inside the kiosk, app connect links can't open a browser, so connect apps from the agent page on a computer.
+
 ## The demo
 
 1. "Hey Desku… help me plan my afternoon." It offers **Show Desku** or **I'll say it**.
@@ -205,3 +229,7 @@ Request settings:
 - Thinking is adaptive (it can't be turned off on Opus 5.5) with `effort: low`, to keep spoken turns quick.
 - Automatic prompt caching is on.
 - `fallbacks: "default"` is set, so if a safety classifier declines a turn, the server retries it on Anthropic's recommended model.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

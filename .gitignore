@@ -9,3 +9,4 @@ local.properties
 /app/src/main/assets/model-en-us/
 /demo/run-*/
 .env
+backups/

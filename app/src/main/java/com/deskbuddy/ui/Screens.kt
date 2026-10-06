@@ -10,6 +10,11 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.deskbuddy.camera.Presence
 import androidx.activity.compose.BackHandler
@@ -103,7 +108,7 @@ private val LocalMic = compositionLocalOf<MicControl?> { null }
 
 /** One app, six screens (design 1a Nightlight): the screen follows what Desku is doing. */
 @Composable
-fun DeskuApp(vm: CompanionViewModel, onPin: () -> Unit) {
+fun DeskuApp(vm: CompanionViewModel, onPin: () -> Unit, kiosk: KioskHooks? = null) {
     val ui by vm.ui.collectAsStateWithLifecycle()
     val prefs by vm.settings.prefs.collectAsStateWithLifecycle()
     val memories by vm.memories.collectAsStateWithLifecycle()
@@ -111,6 +116,13 @@ fun DeskuApp(vm: CompanionViewModel, onPin: () -> Unit) {
     val look by vm.look.collectAsStateWithLifecycle()
     val wake by vm.wake.status.collectAsStateWithLifecycle()
     var showSettings by remember { mutableStateOf(false) }
+    var showAdmin by remember { mutableStateOf(false) }
+    // In the locked-down kiosk, settings sit behind the admin PIN.
+    val locked = kiosk?.active?.invoke() == true
+    val openSettings = { if (locked) showAdmin = true else showSettings = true }
+    val adminAction = rememberUpdatedState { if (kiosk != null && locked) showAdmin = true else showSettings = true }
+    // Stable across recompositions (the clock ticks every second), so a 5 s hold isn't reset.
+    val onAdmin = remember { { adminAction.value() } }
     val now = rememberNow()
 
     val presence by vm.eyes.presence.collectAsStateWithLifecycle()
@@ -138,6 +150,7 @@ fun DeskuApp(vm: CompanionViewModel, onPin: () -> Unit) {
         Modifier
             .fillMaxSize()
             .background(if (ui.ambient) Color.Black else Night.Bg)
+            .adminHold(onAdmin)
             .windowInsetsPadding(WindowInsets.displayCutout),
     ) {
         // Voice glow along the bottom, behind everything: your voice while you talk, Desku's
@@ -157,17 +170,20 @@ fun DeskuApp(vm: CompanionViewModel, onPin: () -> Unit) {
             label = "screen",
         ) { s ->
             when (s) {
-                Screen.Idle -> IdleScreen(ui, prefs, wake, timer, memories.size, now, presence, eyesOn, vm, onSettings = { showSettings = true })
+                Screen.Idle -> IdleScreen(ui, prefs, wake, timer, memories.size, now, presence, eyesOn, vm, onSettings = openSettings)
                 Screen.Conversation -> ConversationScreen(ui, mode, prefs, memories.size, now, presence, vm)
                 Screen.Camera -> CameraScreen(ui, prefs, look, vm)
                 Screen.CheckIn -> CheckInScreen(ui, memories.lastOrNull(), now, vm)
-                Screen.Memories -> MemoriesScreen(ui, prefs, wake, memories, eyesOn, vm, onSettings = { showSettings = true })
+                Screen.Memories -> MemoriesScreen(ui, prefs, wake, memories, eyesOn, vm, onSettings = openSettings)
             }
         }
         }
         ui.page?.let { page -> PageOverlay(page, ui, mode, vm::closePage) }
     }
 
+    if (showAdmin && kiosk != null) {
+        AdminDialog(kiosk, onDismiss = { showAdmin = false }, onOpenSettings = { showAdmin = false; showSettings = true })
+    }
     if (showSettings) {
         SettingsDialog(
             prefs = prefs,
@@ -208,6 +224,28 @@ private fun rememberSteadyMode(mode: Mode): Mode {
         shown = mode
     }
     return shown
+}
+
+/**
+ * Hidden admin gesture: hold the top edge of the screen (the status row) for 5 seconds. It only
+ * watches touches and never consumes them, so the chips and buttons up there keep working.
+ */
+private fun Modifier.adminHold(onAdmin: () -> Unit): Modifier = pointerInput(Unit) {
+    val edge = 120.dp.toPx()
+    val slop = 40.dp.toPx()
+    awaitEachGesture {
+        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
+        if (down.position.y > edge) return@awaitEachGesture
+        val letGo = withTimeoutOrNull(5_000) {
+            while (true) {
+                val e = awaitPointerEvent(PointerEventPass.Initial)
+                if (e.changes.none { it.pressed }) break
+                if (e.changes.any { (it.position - down.position).getDistance() > slop }) break
+            }
+            true
+        }
+        if (letGo == null) onAdmin()
+    }
 }
 
 private fun clock(t: Long) = SimpleDateFormat("h:mm", Locale.getDefault()).format(Date(t))

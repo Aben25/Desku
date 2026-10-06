@@ -20,6 +20,8 @@ export interface Config {
   quietHours: [number, number] | null;
   /** Composio (the user's apps). Off when the key is empty. */
   composioApiKey: string;
+  /** Keep a voice session open whenever the phone is connected (about $3/hour), instead of Talk/wake word. */
+  alwaysListen: boolean;
   composioUserId: string;
 }
 
@@ -47,6 +49,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     awayCallAfterSeconds: Number(env.AWAY_CALL_AFTER_SECONDS ?? 60),
     quietHours: parseHours(env.QUIET_HOURS ?? "22-8"),
     composioApiKey: env.COMPOSIO_API_KEY ?? "",
+    alwaysListen: (env.ALWAYS_LISTEN ?? "1") !== "0",
     composioUserId: env.COMPOSIO_USER_ID ?? "desku-owner",
   };
 }

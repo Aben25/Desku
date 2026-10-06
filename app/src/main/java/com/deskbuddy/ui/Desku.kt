@@ -265,10 +265,12 @@ fun DrawnDesku(
             repeat(3) { i ->
                 val phase = ((dots - i * .17f) % 1f + 1f) % 1f
                 val wave = if (phase < .5f) phase * 2f else (1f - phase) * 2f
+                // Sized for a small Desku; on a big one keep them small and tucked in at his top-right.
+                val d = minOf(k, 1.6f * density)
                 drawCircle(
                     Night.Accent.copy(alpha = .3f + .7f * wave),
-                    radius = 2.5f * k,
-                    center = Offset(w + 6f * k - (2 - i) * 8f * k - 2.5f * k, -14f * k + 2.5f * k - 4f * k * wave),
+                    radius = 2.5f * d,
+                    center = Offset(w * .82f - (2 - i) * 8f * d, h * .06f - 4f * d * wave),
                 )
             }
         }

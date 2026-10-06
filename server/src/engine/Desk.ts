@@ -8,6 +8,7 @@ import { liveInstructions } from "../live/prompt.ts";
 import { Transcript } from "../live/Transcript.ts";
 import { mask, type PhoneCaller } from "../phone/AgentPhone.ts";
 import type { Checkin, Store } from "../store/Store.ts";
+import { renderToday } from "./today.ts";
 import { type DeskAction, localTime, makeTools } from "./tools.ts";
 
 /** What the Desk needs from a GPT-Live session; LiveClient in production, a fake in tests. */
@@ -81,6 +82,15 @@ export class Desk {
   /** From the phone's on-device face detection; null until the phone reports it. */
   private presence: { present: boolean; since: number } | null = null;
   private lastWelcome = 0;
+  /** Always-listening is paused after the user presses Stop, until they press Talk again. */
+  private listenPaused = false;
+  private lastOpenAt = 0;
+  /** When Desku's voice last came through, and when we last told the phone to cut it off. */
+  private lastVoiceAt = 0;
+  private lastInterruptAt = 0;
+  private lastTodayShownAt = 0;
+  /** No "phone offline → call" right after startup: the phone needs a moment to reconnect. */
+  private readonly startedAt: number;
   private apps: Apps | null = null;
   private pages: Pages | null = null;
 
@@ -88,12 +98,13 @@ export class Desk {
     private readonly store: Store,
     private readonly brain: Brain,
     private readonly newLive: LiveFactory,
-    private readonly config: Pick<Config, "idleCloseSeconds" | "timeZone">,
+    private readonly config: Pick<Config, "idleCloseSeconds" | "timeZone"> & { alwaysListen?: boolean },
     private readonly now: () => number = Date.now,
     private readonly log: (msg: string) => void = console.log,
     private readonly settleMs = 400,
   ) {
     store.onChange(() => this.sendDesk());
+    this.startedAt = now();
   }
 
   enablePages(pages: Pages) {
@@ -153,6 +164,8 @@ export class Desk {
     });
     this.sendState();
     this.sendDesk();
+    this.listenPaused = false;
+    if (this.config.alwaysListen) this.openLive();
     // Check-ins that came due while the phone was away get delivered now.
     void this.tick();
   }
@@ -171,8 +184,10 @@ export class Desk {
     }
     switch (msg.type) {
       case "start":
+        this.listenPaused = false;
         return this.openLive();
       case "stop":
+        this.listenPaused = true;
         return this.live?.close();
       case "mute":
         this.muted = true;
@@ -215,6 +230,7 @@ export class Desk {
   private openLive() {
     if (this.live?.isOpen) return;
     this.closeAfterReply = false;
+    this.lastOpenAt = this.now();
     this.transcript = new Transcript();
     this.lastActivity = this.now();
     const live = this.newLive(liveInstructions(this.store, this.config.timeZone, this.now()));
@@ -230,11 +246,21 @@ export class Desk {
     });
     live.on("audio", (pcm) => {
       this.lastActivity = this.now();
+      this.lastVoiceAt = this.now();
       if (this.device?.readyState === 1) this.device.send(pcm, { binary: true });
     });
     live.on("transcript", (role, delta, startMs) => {
       this.lastActivity = this.now();
-      if (role === "user") this.awaitingReply = null; // someone's at the desk
+      if (role === "user") {
+        this.awaitingReply = null; // someone's at the desk
+        // Barge-in: GPT-Live already stops generating when the user talks over it, but the phone
+        // has a few seconds of Desku's speech queued. Tell it to drop that right away.
+        const now = this.now();
+        if (now - this.lastVoiceAt < 3_000 && now - this.lastInterruptAt > 1_000 && delta.trim()) {
+          this.lastInterruptAt = now;
+          this.send({ type: "interrupt" });
+        }
+      }
       this.transcript.add(role, delta, startMs);
       this.send({ type: "transcript", role, delta });
     });
@@ -294,6 +320,8 @@ export class Desk {
     const before = this.presence;
     if (before && before.present === present) return;
     this.presence = { present, since: now };
+    // Seen arriving (or first seen after connecting): put the day on the screen.
+    if (present && (!before || now - before.since > 60_000) && now - this.lastTodayShownAt > 2 * 60_000) this.showToday();
     if (!present || !before) return;
     this.awaitingReply = null;
     const awayMs = now - before.since;
@@ -317,6 +345,24 @@ export class Desk {
     } finally {
       this.busy--;
       this.lastActivity = this.now();
+    }
+  }
+
+  /** Puts the Today screen (to-dos, focus, memories) on the phone, replacing the last one. */
+  showToday(): void {
+    if (!this.pages || !this.device) return;
+    try {
+      const page = this.pages.save("Today", renderToday(this.store, this.config.timeZone, this.now()), this.store.todayPageId() || null);
+      if (page.id !== this.store.todayPageId()) this.store.setTodayPageId(page.id);
+      this.lastTodayShownAt = this.now();
+      this.send({ type: "page", id: page.id, title: page.title, url: `/p/${page.id}?v=${page.updatedAt}` });
+    } catch (e) {
+      // The saved page may have been deleted from the agent page: start a fresh one.
+      if (this.store.todayPageId()) {
+        this.store.setTodayPageId("");
+        return this.showToday();
+      }
+      this.log(`desk: today page failed: ${(e as Error).message}`);
     }
   }
 
@@ -353,6 +399,7 @@ export class Desk {
       timeZone: this.config.timeZone,
       now: this.now,
       userWords,
+      recentUserWords: userWords ? this.transcript.recentUser(4) : "",
       previousAssistant,
       cameraOn: () => this.cameraOn && !!this.device,
       takePhoto: () => this.takePhoto(),
@@ -374,9 +421,11 @@ export class Desk {
           ? { atDesk: this.presence.present, minutes: Math.floor((this.now() - this.presence.since) / 60_000) }
           : { atDesk: null, minutes: 0 },
       pages: this.pages,
+      showToday: () => this.showToday(),
       onPage: (page) => {
         this.log(`desk: page ${page.id} "${page.title}"`);
-        this.send({ type: "page", id: page.id, title: page.title, url: `/p/${page.id}` });
+        // ?v= changes on every update, so the phone reloads a page that kept its id.
+        this.send({ type: "page", id: page.id, title: page.title, url: `/p/${page.id}?v=${page.updatedAt}` });
       },
       onLink: (url) => {
         this.log(`desk: connect link: ${url}`);
@@ -410,7 +459,11 @@ export class Desk {
       this.closeAfterReply = false;
       this.live.close();
     }
-    if (this.live && this.liveState === "open" && this.busy === 0 && now - this.lastActivity > this.config.idleCloseSeconds * 1000) {
+    // Always listening: reopen a dropped or expired voice session (at most every 10 s).
+    if (this.config.alwaysListen && this.device && !this.live && !this.listenPaused && !this.calling && now - this.lastOpenAt > 10_000) {
+      this.openLive();
+    }
+    if (!this.config.alwaysListen && this.live && this.liveState === "open" && this.busy === 0 && now - this.lastActivity > this.config.idleCloseSeconds * 1000) {
       this.log("desk: voice session idle; closing it");
       this.live.close();
     }
@@ -423,7 +476,7 @@ export class Desk {
     const due = this.store.pendingCheckins().filter((c) => c.dueAt <= now);
     if (!this.device) {
       // With phone calls set up, an offline desk means call; otherwise wait for the phone.
-      if (!this.away) return;
+      if (!this.away || now - this.startedAt < 2 * 60_000) return;
       for (const checkin of due) {
         this.store.markCheckinFired(checkin.id);
         void this.callAway(checkin, "the desk phone is offline");
@@ -503,6 +556,7 @@ Goal: a friendly check-in of under a minute. Ask how it's going and whether they
     } catch (e) {
       this.log(`desk: phone call failed: ${(e as Error).message}`);
       this.send({ type: "error", message: `phone call: ${(e as Error).message}` });
+      if (checkin.id.startsWith("call")) this.reportToUser(callProblem(e as Error));
     } finally {
       this.calling = false;
     }
@@ -535,7 +589,7 @@ Say early on that you're an AI assistant calling for them. Deliver the purpose b
     } catch (e) {
       this.log(`desk: call to ${mask(to)} failed: ${(e as Error).message}`);
       this.send({ type: "error", message: `phone call: ${(e as Error).message}` });
-      this.reportToUser(`I couldn't get the call through: ${(e as Error).message.slice(0, 120)}`);
+      this.reportToUser(callProblem(e as Error));
     } finally {
       this.calling = false;
     }
@@ -597,6 +651,13 @@ Say early on that you're an AI assistant calling for them. Deliver the purpose b
       checkins: this.store.pendingCheckins(),
     });
   }
+}
+
+/** A phone failure in words Desku can say out loud. */
+function callProblem(e: Error) {
+  if (/→ 402/.test(e.message)) return "I couldn't place the call: my phone line has no credit yet. Add funds on the AgentPhone billing page and I'll try again.";
+  if (/→ 40[13]/.test(e.message)) return "I couldn't place the call: my phone line's key isn't working.";
+  return "I couldn't get the call through just now. Want me to try again?";
 }
 
 function inQuietHours(hour: number, [start, end]: [number, number]) {

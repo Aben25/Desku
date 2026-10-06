@@ -96,6 +96,13 @@ class LiveAudio(context: Context, private val scope: CoroutineScope) {
         record = null
     }
 
+    /** The user talked over Desku: drop everything queued and stop the speaker right now. */
+    fun flush() {
+        while (queue.tryReceive().isSuccess) { /* discard */ }
+        track?.let { t -> runCatching { t.pause(); t.flush(); t.play() } }
+        playheadEnd = 0
+    }
+
     fun play(pcm: ByteArray) {
         val ms = pcm.size / BYTES_PER_MS
         val now = SystemClock.elapsedRealtime()

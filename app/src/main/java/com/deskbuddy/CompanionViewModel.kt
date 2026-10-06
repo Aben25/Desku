@@ -115,6 +115,8 @@ class CompanionViewModel(app: Application) : AndroidViewModel(app), BrainHost {
     private var lastRole = ""
     private var lastFocusMinutes = 25
     private var sentPresence: Boolean? = null
+    /** The voice session was paused because the app went to the background, not by the user. */
+    @Volatile private var pausedByBackground = false
     private val engineOn: Boolean get() = settings.current.serverUrl.isNotBlank()
 
     /** Saved memories: the engine's when it's in use, otherwise the ones kept on this phone. */
@@ -161,7 +163,10 @@ class CompanionViewModel(app: Application) : AndroidViewModel(app), BrainHost {
                         _ui.update { it.copy(cameraOpen = false, snapshot = null, card = null, memoriesOpen = false) }
                     }
                 }
-                if (quietFor > AMBIENT_AFTER_MS && s.mode == Mode.Idle && !s.ambient && s.checkIn == null) {
+                // Always-listen keeps the engine session open, so "listening with nobody talking" counts as
+                // resting too; any speech (transcripts call touch()) brightens the screen again.
+                val resting = s.mode == Mode.Idle || (s.mode == Mode.Listening && s.heard.isBlank())
+                if (quietFor > AMBIENT_AFTER_MS && resting && !s.ambient && s.checkIn == null && s.page == null) {
                     _ui.update { it.copy(ambient = true) }
                 }
             }
@@ -177,7 +182,12 @@ class CompanionViewModel(app: Application) : AndroidViewModel(app), BrainHost {
 
     /** Activity stopped (screen off, another app on top): release the mic entirely. */
     fun onBackground() {
-        if (engineOn && engineState.live != "idle") link.send("stop")
+        // Screen off or app covered: the phone can't use the mic in the background, so pause the
+        // voice session. Unlike the user's own Stop, this resumes when Desku is back on screen.
+        if (engineOn && engineState.live != "idle") {
+            pausedByBackground = true
+            link.send("stop")
+        }
         ears.cancel()
         wake.stop()
         voice.stop()
@@ -186,6 +196,10 @@ class CompanionViewModel(app: Application) : AndroidViewModel(app), BrainHost {
 
     fun onForeground() {
         touch()
+        if (engineOn && pausedByBackground && !settings.current.micMuted) {
+            pausedByBackground = false
+            if (link.connected && engineState.live == "idle") link.send("start")
+        }
         if (_ui.value.mode == Mode.Idle) goIdle()
     }
 
@@ -760,6 +774,11 @@ class CompanionViewModel(app: Application) : AndroidViewModel(app), BrainHost {
         override fun onCalling(about: String) = notice("You weren't at the desk, so I'm calling your phone.")
 
         override fun onLink(url: String, label: String) {
+            // Locked kiosk: no browser to open. Connecting apps happens on the agent page instead.
+            if (com.deskbuddy.kiosk.KioskPolicy.isOwner(getApplication())) {
+                notice("$label: open the Desku agent page on your computer and connect it there, then ask me again.")
+                return
+            }
             // Plain text isn't tappable on the kiosk, so open the link right away to approve it here.
             notice("$label: opening the browser… Approve it there, then come back and ask again.")
             runCatching {
@@ -771,6 +790,12 @@ class CompanionViewModel(app: Application) : AndroidViewModel(app), BrainHost {
         }
 
         override fun onError(message: String) = notice(message)
+
+        override fun onInterrupt() {
+            audio.flush()
+            synchronized(voiceSchedule) { voiceSchedule.clear() }
+            voicePlayhead = 0L
+        }
 
         override fun onAudio(pcm: ByteArray) {
             if (audioRunning) {

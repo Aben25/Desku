@@ -161,20 +161,20 @@ test("call_phone to a friend: only when the user asked, validated, and the outco
   store.cancelCheckins();
   const device = new FakeDevice();
   desk.attach(device as any);
-  (desk as any).onTapped("Call my friend at +1 628 318 2767 and tell her I'm running late");
+  (desk as any).onTapped("Call my friend at +1 555 010 0199 and tell her I'm running late");
   await tick();
   const tools = brainTools[0];
   const bad: any = await tools("call_phone", { to: "911", reason: "x", caller_name: null });
   assert.equal(bad.ok, false);
   assert.match(bad.error, /isn't a US or Canada number/);
-  const r: any = await tools("call_phone", { to: "+1 (628) 318-2767", reason: "running late", caller_name: "Abeneter" });
+  const r: any = await tools("call_phone", { to: "+1 (555) 010-0199", reason: "running late", caller_name: "Sam" });
   assert.equal(r.ok, true);
   await tick();
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].toNumber, "+16283182767");
-  assert.match(calls[0].initialGreeting, /AI assistant calling on behalf of Abeneter/);
+  assert.equal(calls[0].toNumber, "+15550100199");
+  assert.match(calls[0].initialGreeting, /AI assistant calling on behalf of Sam/);
   assert.match(calls[0].systemPrompt, /Purpose, in their words: running late/);
-  assert.match(asked.at(-1)!, /^\[Desk event\] You phoned \+16283182767 for the user/);
+  assert.match(asked.at(-1)!, /^\[Desk event\] You phoned \+15550100199 for the user/);
   assert.ok(lives.at(-1)!.sent.some((m) => m[0] === "commentary" && m[2] === null), "outcome spoken at the desk");
 });
 
@@ -184,7 +184,7 @@ test("call_phone to someone else is refused when the user never asked for a call
   desk.attach(new FakeDevice() as any);
   (desk as any).onTapped("What's on my list today?");
   await tick();
-  const r: any = await brainTools[0]("call_phone", { to: "+16283182767", reason: "hi", caller_name: null });
+  const r: any = await brainTools[0]("call_phone", { to: "+15550100199", reason: "hi", caller_name: null });
   assert.equal(r.ok, false);
   assert.match(r.error, /didn't ask for this call/);
   assert.equal(calls.length, 0);
@@ -201,4 +201,50 @@ test("camera says nobody's at the desk: a due check-in calls right away", async 
   await tick();
   assert.equal(calls.length, 1);
   assert.match(calls[0].systemPrompt, /desk camera hasn't seen them/);
+});
+
+test("call consent can span the exchange: 'call my friend' … number … 'yes' … message", async () => {
+  const { desk, calls, brainTools, store, lives } = setup();
+  store.cancelCheckins();
+  desk.attach(new FakeDevice() as any);
+  (desk as any).openLive();
+  const live = lives.at(-1)!;
+  live.emit("started", "s");
+  for (const [i, words] of ["Can you call my friend", "two four zero, five five five, zero one nine nine", "Yeah, that's correct", "Tell them I'm running late for the soccer game"].entries()) {
+    live.emit("transcript", "user", words, i * 1000);
+    live.emit("transcript", "assistant", "Okay?", i * 1000 + 500);
+  }
+  live.emit("transcript", "user", " ", 9000);
+  live.emit("delegation", "d1");
+  await tick();
+  const r: any = await brainTools.at(-1)!("call_phone", { to: "+12405550199", reason: "running late for the soccer game", caller_name: null });
+  assert.equal(r.ok, true, r.error);
+  await tick();
+  assert.equal(calls.length, 1);
+});
+
+test("no credit on the phone line: Desku says so plainly", async () => {
+  const { desk, store, lives } = setup();
+  store.cancelCheckins();
+  desk.enableAwayCalls({
+    caller: { call: async () => { throw new Error("AgentPhone POST /v1/calls → 402 (outbound calls need a payment method): {...}"); } },
+    toNumber: "+15555550123", noReplySeconds: 60, quietHours: null,
+  });
+  desk.attach(new FakeDevice() as any);
+  await (desk as any).callForUser("+15550100199", "hi", null);
+  assert.match(String(lives.at(-1)!.sent.at(-1)?.[1]), /no credit yet\. Add funds on the AgentPhone billing page/);
+});
+
+test("right after startup, an offline phone isn't treated as 'away' yet", async () => {
+  const { desk, calls, store, advance } = setup();
+  store.cancelCheckins();
+  store.addCheckin(Date.now() - 1000, "Focus check-in: stale");
+  advance(0);
+  await desk.tick();
+  await tick();
+  assert.equal(calls.length, 0, "grace period after boot");
+  advance(3 * 60_000);
+  await desk.tick();
+  await tick();
+  assert.equal(calls.length, 1);
 });

@@ -48,6 +48,11 @@ export class Transcript {
     return said.length ? said.map((t) => t.text.trim()).join(" ") : null;
   }
 
+  /** The user's last [n] turns, joined: a request often spans several ("call my friend" … "yes"). */
+  recentUser(n = 4): string {
+    return this.turns.filter((t) => t.role === "user").slice(-n).map((t) => t.text.trim()).join(" ");
+  }
+
   recent(n = 20): string {
     return this.turns
       .slice(-n)

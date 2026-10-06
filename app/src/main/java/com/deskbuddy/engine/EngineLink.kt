@@ -40,6 +40,8 @@ class EngineLink(private val scope: CoroutineScope, private val listener: Listen
         fun onControl(action: String)
         /** Desku made or updated a web page for the screen; [url] is absolute. */
         fun onPage(title: String, url: String)
+        /** The user started talking over Desku: stop playing its voice now. */
+        fun onInterrupt()
     }
 
     private val client = OkHttpClient.Builder().pingInterval(20, TimeUnit.SECONDS).build()
@@ -97,6 +99,7 @@ class EngineLink(private val scope: CoroutineScope, private val listener: Listen
                     "link" -> listener.onLink(m.optString("url"), m.optString("label", "Open"))
                     "error" -> listener.onError(m.optString("message"))
                     "control" -> listener.onControl(m.optString("action"))
+                    "interrupt" -> listener.onInterrupt()
                     "page" -> listener.onPage(m.optString("title"), httpBase + m.optString("url"))
                 }
             }

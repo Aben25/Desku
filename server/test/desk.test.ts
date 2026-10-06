@@ -252,7 +252,7 @@ test("show_page saves the page and tells the phone where it is", async () => {
   assert.equal(result.ok, true);
   const page = device.last("page");
   assert.equal(page.title, "Tickets");
-  assert.equal(page.url, `/p/${page.id}`);
+  assert.match(page.url, new RegExp(`^/p/${page.id}\\?v=\\d+$`), "versioned so the phone reloads updates");
   assert.match(result.output, new RegExp(`page_id "${page.id}"`));
 });
 
@@ -290,4 +290,80 @@ test("presence shows up in desk status; capture has no countdown", async () => {
   await tick();
   assert.equal(status.user_at_desk, "yes, for 0 min");
   assert.equal(device.last("capture").countdownSeconds, 0);
+});
+
+test("always listening: opens on connect, reopens after a drop, Stop pauses until Talk", async () => {
+  let clock = Date.parse("2026-10-05T14:00:00Z");
+  const store = new Store(mkdtempSync(join(tmpdir(), "desku-listen-")), () => clock);
+  const lives: FakeLive[] = [];
+  const desk = new Desk(store, new FakeBrain(async () => "ok"), (i) => { const l = new FakeLive(i); lives.push(l); return l as unknown as Live; },
+    { idleCloseSeconds: 60, timeZone: "UTC", alwaysListen: true }, () => clock, () => {}, 0);
+  const device = new FakeDevice();
+  desk.attach(device as any);
+  assert.equal(lives.length, 1, "opened on connect");
+  lives[0].started();
+  clock += 10 * 60_000;
+  await desk.tick();
+  assert.ok(lives[0].isOpen, "no idle close while always listening");
+  lives[0].emit("closed", "expired");
+  clock += 11_000;
+  await desk.tick();
+  assert.equal(lives.length, 2, "reopened");
+  device.say({ type: "stop" });
+  clock += 60_000;
+  await desk.tick();
+  assert.equal(lives.length, 2, "paused after Stop");
+  device.say({ type: "start" });
+  assert.equal(lives.length, 3);
+});
+
+test("barge-in: user talking over Desku tells the phone to drop queued speech", async () => {
+  const { lives, device, advance } = setup(async () => "ok");
+  device.say({ type: "start" });
+  lives[0].started();
+  lives[0].emit("audio", Buffer.alloc(4800));
+  lives[0].emit("transcript", "user", "wait, stop", 100);
+  assert.equal(device.json.filter((m) => m.type === "interrupt").length, 1);
+  advance(10_000);
+  lives[0].emit("transcript", "user", " and another thing", 200);
+  assert.equal(device.json.filter((m) => m.type === "interrupt").length, 1, "no interrupt when Desku isn't talking");
+});
+
+test("to-dos: add, check off, and the Today screen refreshes each time", async () => {
+  const { Pages } = await import("../src/pages/Pages.ts");
+  const results: any[] = [];
+  const { lives, device, desk, store } = setup(async (_t, tools) => {
+    results.push(await tools("add_todo", { text: "Finish the hackathon demo video" }));
+    results.push(await tools("add_todo", { text: "Email Felipe" }));
+    results.push(await tools("complete_todo", { todo: "demo video" }));
+    results.push(await tools("complete_todo", { todo: "nonexistent thing" }));
+    return "Added.";
+  });
+  const pages = new Pages(mkdtempSync(join(tmpdir(), "desku-today-")));
+  desk.enablePages(pages);
+  device.say({ type: "start" });
+  lives[0].started();
+  lives[0].emit("transcript", "user", "add finish the hackathon demo video to my to-dos", 0);
+  lives[0].emit("delegation", "d1");
+  await tick();
+  assert.deepEqual(results.map((r) => r.ok), [true, true, true, false]);
+  assert.deepEqual(store.todos().map((t) => [t.text, t.done]), [["Finish the hackathon demo video", true], ["Email Felipe", false]]);
+  const shown = device.json.filter((m) => m.type === "page");
+  assert.equal(shown.length, 3, "Today screen shown after every change");
+  assert.equal(new Set(shown.map((m) => m.id)).size, 1, "same page, updated in place");
+  const html = pages.html(shown[0].id)!;
+  assert.match(html, /Email Felipe/);
+  assert.match(html, /<s>Finish the hackathon demo video<\/s>/);
+});
+
+test("Today screen appears when the camera sees the user arrive", async () => {
+  const { Pages } = await import("../src/pages/Pages.ts");
+  const { device, desk, advance } = setup(async () => "ok");
+  desk.enablePages(new Pages(mkdtempSync(join(tmpdir(), "desku-today2-"))));
+  device.say({ type: "presence", present: true });
+  assert.equal(device.json.filter((m) => m.type === "page").length, 1);
+  device.say({ type: "presence", present: false });
+  advance(30_000);
+  device.say({ type: "presence", present: true });
+  assert.equal(device.json.filter((m) => m.type === "page").length, 1, "not for a short glance away");
 });

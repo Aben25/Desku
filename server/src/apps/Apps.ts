@@ -21,7 +21,8 @@ type Session =Awaited<ReturnType<Composio["create"]>>;
 
 // A desk buddy reads and acts on apps; it doesn't need Composio's remote sandbox tools.
 const SKIP = new Set(["COMPOSIO_REMOTE_BASH_TOOL", "COMPOSIO_REMOTE_WORKBENCH"]);
-const MAX_OUTPUT_CHARS = 40_000;
+// Big app payloads (full email bodies) slow every following model round; keep results lean.
+const MAX_OUTPUT_CHARS = 12_000;
 
 /**
  * The user's apps (Calendar, Gmail, Slack, … 500+) through one Composio session. Its meta

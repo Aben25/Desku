@@ -38,6 +38,7 @@ import java.io.File
 class MainActivity : ComponentActivity() {
 
     private val vm: CompanionViewModel by viewModels()
+    private val wifiSetup by lazy { com.deskbuddy.kiosk.WifiSetup(this) }
 
     private val askPermissions = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { reportPermissions() }
 
@@ -51,7 +52,17 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             MaterialTheme(colorScheme = darkColorScheme(background = Night.Bg, surface = Night.Raised, primary = Night.Accent)) {
-                DeskuApp(vm, onPin = ::pin)
+                DeskuApp(
+                    vm,
+                    onPin = ::pin,
+                    kiosk = com.deskbuddy.ui.KioskHooks(
+                        active = { com.deskbuddy.kiosk.KioskPolicy.isActive(this) },
+                        verifyPin = { checkPin(it) },
+                        exit = { exitKiosk(it) },
+                        wifi = { com.deskbuddy.kiosk.KioskPolicy.openWifi(this, it) },
+                        wifiSetup = wifiSetup,
+                    ),
+                )
             }
         }
 
@@ -72,6 +83,18 @@ class MainActivity : ComponentActivity() {
 
         if (BuildConfig.DEBUG) registerDebugHooks()
     }
+
+    override fun onResume() {
+        super.onResume()
+        // Device owner: lock the phone to Desku. Otherwise this does nothing.
+        com.deskbuddy.kiosk.KioskPolicy.enter(this)
+    }
+
+    /** Admin exit for the locked kiosk (hidden gesture + PIN in the UI, or adb in debug builds). */
+    fun exitKiosk(pin: String): Boolean = com.deskbuddy.kiosk.KioskPolicy.exit(this, pin)
+
+    /** Checks the admin PIN without changing anything (opens Settings while locked). */
+    fun checkPin(pin: String): Boolean = BuildConfig.KIOSK_PIN.isNotBlank() && pin == BuildConfig.KIOSK_PIN
 
     override fun onStart() {
         super.onStart()
@@ -112,6 +135,7 @@ class MainActivity : ComponentActivity() {
 
     /** Android screen pinning: shows its own confirmation, and is undone with back + overview. */
     private fun pin() {
+        if (com.deskbuddy.kiosk.KioskPolicy.isOwner(this)) return com.deskbuddy.kiosk.KioskPolicy.enter(this)
         runCatching { startLockTask() }.onFailure { Log.w("DeskBuddy", "screen pinning unavailable", it) }
     }
 
@@ -128,6 +152,7 @@ class MainActivity : ComponentActivity() {
                     ACTION_WAKE -> vm.onWakePhrase()
                     ACTION_TIMER -> vm.debugTimer(intent.getIntExtra("seconds", 10), intent.getStringExtra("task") ?: "test")
                     ACTION_NEW -> vm.newConversation()
+                    ACTION_KIOSK_EXIT -> Log.i("DeskuKiosk", "exit: " + exitKiosk(intent.getStringExtra("pin").orEmpty()))
                     ACTION_SCREEN -> vm.debugScreen(
                         intent.getStringExtra("mode") ?: "speaking",
                         intent.getStringExtra("text").orEmpty(),
@@ -138,7 +163,7 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-        val filter = IntentFilter().apply { listOf(ACTION_SAY, ACTION_PHOTO, ACTION_WAKE, ACTION_TIMER, ACTION_NEW, ACTION_SCREEN).forEach(::addAction) }
+        val filter = IntentFilter().apply { listOf(ACTION_SAY, ACTION_PHOTO, ACTION_WAKE, ACTION_TIMER, ACTION_NEW, ACTION_SCREEN, ACTION_KIOSK_EXIT).forEach(::addAction) }
         ContextCompat.registerReceiver(this, receiver, filter, ContextCompat.RECEIVER_EXPORTED)
         debugReceiver = receiver
     }
@@ -150,5 +175,6 @@ class MainActivity : ComponentActivity() {
         const val ACTION_TIMER = "com.deskbuddy.debug.TIMER"
         const val ACTION_NEW = "com.deskbuddy.debug.NEW_CONVERSATION"
         const val ACTION_SCREEN = "com.deskbuddy.debug.SCREEN"
+        const val ACTION_KIOSK_EXIT = "com.deskbuddy.debug.KIOSK_EXIT"
     }
 }
